@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lava Monke Tag</title>
+<style>
+:root{--bg:#e8ecf5;--fg:#1a1d2b;--card:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b1020;--fg:#f4f1ea;--card:#161c30}}
+:root[data-theme="dark"]{--bg:#0b1020;--fg:#f4f1ea;--card:#161c30}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#ov{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.45);z-index:2}
+#card{background:var(--card);padding:24px;border-radius:16px;max-width:420px;text-align:center}
+h1{margin:0 0 8px;color:#ff6a1a}p{margin:6px 0;font-size:15px;line-height:1.4}
+button{font-size:18px;padding:12px 22px;margin:8px 4px 0;border:0;border-radius:10px;background:#ff6a1a;color:#fff;cursor:pointer}
+button:disabled{opacity:.5}
+</style></head><body>
+<div id="ov"><div id="card">
+<h1>🔥 Lava Monke Tag</h1>
+<p>Hold <b>grip or trigger</b> and push your hands against the ground, walls and blocks to launch yourself. Each round one monke turns lava. Touch someone to pass it on. Safe = points every second.</p>
+<p>Left wrist shows the leaderboard. The big board is on the wall ahead.</p>
+<button id="vr" disabled>Checking VR…</button><button id="desk">Desktop test</button>
+<p style="font-size:12px;opacity:.7">Desktop: WASD + drag to look + Space to jump</p>
+</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const V3=THREE.Vector3, ROUND=60;
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local-floor');
+document.body.prepend(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x7ec8ff);scene.fog=new THREE.Fog(0x7ec8ff,25,75);
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.05,200);
+const rig=new THREE.Group();rig.add(camera);scene.add(rig);camera.position.y=1.6;camera.rotation.order='YXZ';
+scene.add(new THREE.HemisphereLight(0xffffff,0x446644,0.95));
+const sun=new THREE.DirectionalLight(0xffffff,0.6);sun.position.set(5,10,3);scene.add(sun);
+// world
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(60,60),new THREE.MeshLambertMaterial({color:0x3f7d3a}));
+ground.rotation.x=-Math.PI/2;scene.add(ground);
+const grid=new THREE.GridHelper(60,30,0x2d5a2a,0x2d5a2a);grid.position.y=0.01;scene.add(grid);
+const solids=[];
+function addBox(x,y,z,w,h,d,c){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshLambertMaterial({color:c}));
+ m.position.set(x,y+h/2,z);scene.add(m);solids.push({min:new V3(x-w/2,y,z-d/2),max:new V3(x+w/2,y+h,z+d/2)});}
+addBox(0,0,-9,6,5,0.5,0x3a3f5c);
+[[-10,-4,2,3],[10,-6,2,2.5],[-14,6,3,4],[14,8,2,3],[0,14,4,1.2],[-6,10,2,1.5],[7,3,1.5,2],[-18,-12,3,5],[18,-14,3,4],[-4,-2,1.5,.8],[4,-1,1.5,1.4]]
+ .forEach((b,i)=>addBox(b[0],0,b[1],b[2],b[3],b[2],new THREE.Color().setHSL(i/11,.45,.5).getHex()));
+addBox(-10,2.6,-16,6,.4,6,0x8a6b3a);addBox(12,3.2,-18,5,.4,5,0x8a6b3a);addBox(0,2,20,6,.4,4,0x8a6b3a);
+// players
+const names=['YOU','BananaBoss','xX_Chimp_Xx','KingKongo','DonkeyDan','Bonzo','LilBabbo','MonkeMike','SilverBack','GrapeApe'];
+function makeMonke(col){const g=new THREE.Group(),mat=new THREE.MeshLambertMaterial({color:col});
+ const add=(geo,m,x,y,z,sx=1,sy=1,sz=1)=>{const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);o.scale.set(sx,sy,sz);g.add(o);return o};
+ add(new THREE.SphereGeometry(.24,12,10),mat,0,.85,0,1,1.3,.9);add(new THREE.SphereGeometry(.16,12,10),mat,0,1.3,0);
+ const e=new THREE.MeshBasicMaterial({color:0xffffff}),eg=new THREE.SphereGeometry(.035,8,6);
+ add(eg,e,-.06,1.33,.14);add(eg,e,.06,1.33,.14);
+ const hg=new THREE.SphereGeometry(.09,10,8);add(hg,mat,-.42,.6,0);add(hg,mat,.42,.6,0);
+ const glow=add(new THREE.SphereGeometry(.75,12,8),new THREE.MeshBasicMaterial({color:0xff5500,transparent:true,opacity:.28,blending:THREE.AdditiveBlending,depthWrite:false}),0,.9,0);
+ glow.visible=false;g.userData={mat,glow};return g}
+function label(txt){const c=document.createElement('canvas');c.width=256;c.height=64;const x=c.getContext('2d');
+ x.fillStyle='rgba(0,0,0,.5)';x.fillRect(0,0,256,64);x.fillStyle='#fff';x.font='bold 30px sans-serif';x.textAlign='center';x.fillText(txt,128,43);
+ const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c)}));s.scale.set(1,.25,1);s.position.y=1.7;return s}
+const players=names.map((name,i)=>{const col=new THREE.Color().setHSL(i/10,.55,.5).getHex();
+ const p={name,isMe:i===0,pos:new V3(),lava:false,score:0,freeze:0,col,skill:Math.random()*.8,side:Math.random()<.5?1:-1,wt:0,tgt:new V3(),face:0};
+ if(!p.isMe){p.group=makeMonke(col);p.group.add(label(name));scene.add(p.group)}return p});
+const me=players[0];
+// hands & HUD
+const ctrls=[0,1].map(i=>renderer.xr.getController(i)),handMats=[],hm=[],vl=[new V3(),new V3()],sq=[0,0],se=[0,0],prev=[new V3(),new V3()],hasPrev=[0,0];
+ctrls.forEach((c,i)=>{rig.add(c);const m=new THREE.MeshLambertMaterial({color:0xf0e0c0});handMats.push(m);
+ const h=new THREE.Mesh(new THREE.SphereGeometry(.07,10,8),m);rig.add(h);hm.push(h);
+ c.addEventListener('squeezestart',()=>sq[i]=1);c.addEventListener('squeezeend',()=>sq[i]=0);
+ c.addEventListener('selectstart',()=>se[i]=1);c.addEventListener('selectend',()=>se[i]=0);
+ c.addEventListener('connected',e=>{c.userData.src=e.data;if(e.data.handedness==='left')c.add(wrist)})});
+function mkBoard(w,h,pw,ph){const c=document.createElement('canvas');c.width=w;c.height=h;const t=new THREE.CanvasTexture(c);
+ const m=new THREE.Mesh(new THREE.PlaneGeometry(pw,ph),new THREE.MeshBasicMaterial({map:t}));m.userData={c,t,w,h};return m}
+const board=mkBoard(512,640,3.6,4.5);board.position.set(0,2.6,-8.73);scene.add(board);
+const wrist=mkBoard(384,480,.16,.2);wrist.rotation.x=-Math.PI/2;wrist.position.set(0,.04,.06);
+const tint=new THREE.Mesh(new THREE.SphereGeometry(.5,12,8),new THREE.MeshBasicMaterial({color:0xff3300,transparent:true,opacity:.16,side:THREE.BackSide,depthTest:false}));
+tint.renderOrder=999;tint.visible=false;camera.add(tint);
+// state
+let round=0,state='wait',stT=4,roundT=0,feed='Get ready...',ac;
+function beep(f,d=.12){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.type='square';o.frequency.value=f;g.gain.value=.05;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
+function buzz(){ctrls.forEach(c=>{try{c.userData.src.gamepad.hapticActuators[0].pulse(.9,200)}catch(e){}})}
+function setLava(p,v){p.lava=v;if(p.isMe){tint.visible=v;handMats.forEach(m=>{m.color.setHex(v?0xff5a1a:0xf0e0c0);m.emissive.setHex(v?0xaa2200:0)})}
+ else{const u=p.group.userData;u.mat.color.setHex(v?0xff4a00:p.col);u.mat.emissive.setHex(v?0xaa2200:0);u.glow.visible=v}}
+function startRound(){round++;players.forEach((p,i)=>{setLava(p,false);p.freeze=0;
+  if(p.isMe){rig.position.set(0,0,0);vel.set(0,0,0)}else{const a=Math.random()*6.28,r=8+Math.random()*14;p.pos.set(Math.cos(a)*r,0,Math.sin(a)*r);pushOut(p.pos)}});
+ const l=players[Math.floor(Math.random()*players.length)];setLava(l,true);l.freeze=2.5;roundT=ROUND;state='play';
+ feed=l.isMe?'YOU are the lava monke! Tag everyone!':l.name+' is the LAVA MONKE!';beep(220,.3);if(l.isMe)buzz()}
+function endRound(){players.forEach(p=>{if(!p.lava)p.score+=10});state='end';stT=5;feed='Round '+round+' over!';beep(660,.3)}
+function tag(a,b){setLava(b,true);b.freeze=1;a.score+=5;feed=a.name+' tagged '+b.name;beep(b.isMe?150:400);if(a.isMe||b.isMe)buzz()}
+function pushOut(pos){for(const b of solids){if(pos.y+1.4<=b.min.y||pos.y>=b.max.y-.3)continue;const r=.3;
+ if(pos.x>b.min.x-r&&pos.x<b.max.x+r&&pos.z>b.min.z-r&&pos.z<b.max.z+r){
+  const l=pos.x-(b.min.x-r),rr=b.max.x+r-pos.x,f=pos.z-(b.min.z-r),k=b.max.z+r-pos.z,m=Math.min(l,rr,f,k);
+  if(m===l)pos.x=b.min.x-r;else if(m===rr)pos.x=b.max.x+r;else if(m===f)pos.z=b.min.z-r;else pos.z=b.max.z+r}}}
+function solidAt(p){if(Math.abs(p.x)<30&&Math.abs(p.z)<30&&p.y<.12)return true;
+ return solids.some(b=>p.x>b.min.x-.07&&p.x<b.max.x+.07&&p.y>b.min.y-.07&&p.y<b.max.y+.07&&p.z>b.min.z-.07&&p.z<b.max.z+.07)}
+// player physics
+let REACH=1.7;try{REACH=parseFloat(localStorage.reach)||1.7}catch(e){}
+const sh=new V3(),vel=new V3(),wp=new V3(),dsum=new V3(),tmp=new V3(),keys={};let yaw=0,pitch=0;
+function physics(dt){const xr=renderer.xr.isPresenting;let n=0;dsum.set(0,0,0);
+ ctrls.forEach((c,i)=>{sh.set(camera.position.x,camera.position.y-.2,camera.position.z);
+  vl[i].copy(c.position).sub(sh).multiplyScalar(REACH).add(sh);wp.copy(vl[i]).add(rig.position);
+  const gp=c.userData.src&&c.userData.src.gamepad;
+  if(xr&&gp&&gp.axes[3]&&Math.abs(gp.axes[3])>.5){REACH=Math.max(1,Math.min(3.2,REACH-gp.axes[3]*dt*.8));feed='Arm reach x'+REACH.toFixed(2)+' (thumbstick up/down)';try{localStorage.reach=REACH}catch(e){}}
+  if(xr&&(sq[i]||se[i])&&hasPrev[i]&&solidAt(wp)){dsum.add(tmp.copy(prev[i]).sub(vl[i]));n++}
+  prev[i].copy(vl[i]);hasPrev[i]=1;hm[i].visible=xr;hm[i].position.copy(vl[i])});
+ if(!xr){const f=(keys.KeyW?1:0)-(keys.KeyS?1:0),s=(keys.KeyD?1:0)-(keys.KeyA?1:0);
+  rig.position.x+=(-Math.sin(yaw)*f+Math.cos(yaw)*s)*5*dt;rig.position.z+=(-Math.cos(yaw)*f-Math.sin(yaw)*s)*5*dt}
+ if(n){rig.position.add(dsum);const v=dsum.clone().divideScalar(dt).multiplyScalar(1.25);if(v.length()>8)v.setLength(8);vel.lerp(v,.5)}
+ else{vel.y-=9.8*dt;vel.multiplyScalar(1-.3*dt);rig.position.addScaledVector(vel,dt)}
+ let ground=false;if(rig.position.y<0){rig.position.y=0;if(vel.y<0)vel.y=0;ground=true}
+ const cx=rig.position.x+camera.position.x,cz=rig.position.z+camera.position.z;
+ for(const b of solids)if(cx>b.min.x-.15&&cx<b.max.x+.15&&cz>b.min.z-.15&&cz<b.max.z+.15&&rig.position.y<=b.max.y+.05&&rig.position.y>b.max.y-.5&&vel.y<=0){rig.position.y=b.max.y;vel.y=0;ground=true}
+ me.pos.set(cx,rig.position.y,cz);pushOut(me.pos);
+ rig.position.x=me.pos.x-camera.position.x;rig.position.z=me.pos.z-camera.position.z;
+ rig.position.x=Math.max(-28,Math.min(28,rig.position.x));rig.position.z=Math.max(-28,Math.min(28,rig.position.z));
+ if(ground&&!n){const k=Math.max(0,1-8*dt);vel.x*=k;vel.z*=k;if(!xr&&keys.Space)vel.y=5}
+ me.pos.set(rig.position.x+camera.position.x,rig.position.y,rig.position.z+camera.position.z)}
+// AI
+function aiStep(p,dt){if(p.freeze>0)return;let tx,tz,sp,best=null,bd=1e9;
+ if(p.lava){for(const q of players)if(!q.lava){const d=(q.pos.x-p.pos.x)**2+(q.pos.z-p.pos.z)**2;if(d<bd){bd=d;best=q}}
+  if(!best)return;tx=best.pos.x;tz=best.pos.z;sp=4.4+p.skill}
+ else{bd=196;for(const q of players)if(q.lava){const d=(q.pos.x-p.pos.x)**2+(q.pos.z-p.pos.z)**2;if(d<bd){bd=d;best=q}}
+  if(best){const ax=p.pos.x-best.pos.x,az=p.pos.z-best.pos.z,l=Math.hypot(ax,az)||1;
+   tx=p.pos.x+ax/l*10-az/l*5*p.side;tz=p.pos.z+az/l*10+ax/l*5*p.side;sp=4+p.skill;
+   if(Math.abs(p.pos.x)>22)tx=p.pos.x*.3;if(Math.abs(p.pos.z)>22)tz=p.pos.z*.3}
+  else{p.wt-=dt;if(p.wt<=0||p.pos.distanceTo(p.tgt)<1){p.tgt.set((Math.random()-.5)*44,0,(Math.random()-.5)*44);p.wt=2+Math.random()*3}tx=p.tgt.x;tz=p.tgt.z;sp=2.2}}
+ const dx=tx-p.pos.x,dz=tz-p.pos.z,l=Math.hypot(dx,dz)||1;p.pos.x+=dx/l*sp*dt;p.pos.z+=dz/l*sp*dt;p.face=Math.atan2(dx,dz);
+ pushOut(p.pos);p.pos.x=Math.max(-28,Math.min(28,p.pos.x));p.pos.z=Math.max(-28,Math.min(28,p.pos.z))}
+function game(dt){
+ if(state==='wait'){stT-=dt;if(stT<=0)startRound();return}
+ if(state==='end'){stT-=dt;if(stT<=0){state='wait';stT=2}return}
+ roundT-=dt;players.forEach(p=>{if(p.freeze>0)p.freeze-=dt;if(!p.lava)p.score+=dt;if(!p.isMe)aiStep(p,dt)});
+ for(const a of players)if(a.lava&&a.freeze<=0)for(const b of players)if(!b.lava&&Math.hypot(a.pos.x-b.pos.x,a.pos.z-b.pos.z)<.85&&Math.abs(a.pos.y-b.pos.y)<1.3)tag(a,b);
+ if(!players.some(p=>!p.lava)||roundT<=0)endRound()}
+// leaderboard
+function status(){return state==='play'?`Round ${round} · ${Math.ceil(roundT)}s · ${players.filter(p=>!p.lava).length} safe`:state==='wait'?`Round ${round+1} in ${Math.ceil(stT)}...`:`Round ${round} over! Survivors +10`}
+function draw(b){const{c,t,w,h}=b.userData,x=c.getContext('2d');x.fillStyle='#0d1119';x.fillRect(0,0,w,h);
+ x.textAlign='center';x.fillStyle='#ff7a1a';x.font='bold '+h*.07+'px sans-serif';x.fillText('LEADERBOARD',w/2,h*.085);
+ x.fillStyle=me.lava?'#ff5a3a':'#9fe870';x.font='bold '+h*.04+'px sans-serif';x.fillText(me.lava?'YOU ARE LAVA - TAG THEM!':'YOU ARE SAFE - RUN!',w/2,h*.14);
+ x.fillStyle='#fff';x.font=h*.036+'px sans-serif';x.fillText(status(),w/2,h*.19);
+ [...players].sort((a,b)=>b.score-a.score).forEach((p,i)=>{const y=h*.27+i*h*.068;
+  if(p.isMe){x.fillStyle='#2a3350';x.fillRect(w*.04,y-h*.045,w*.92,h*.062)}
+  x.fillStyle=p.lava?'#ff7a3a':'#fff';x.font=h*.04+'px sans-serif';x.textAlign='left';x.fillText((i+1)+'. '+p.name+(p.lava?' 🔥':''),w*.07,y);
+  x.textAlign='right';x.fillText(Math.floor(p.score),w*.93,y)});
+ x.textAlign='center';x.fillStyle='#aab';x.font=h*.03+'px sans-serif';x.fillText(feed,w/2,h*.97);t.needsUpdate=true}
+// loop
+let last=0,acc=0;
+renderer.setAnimationLoop(time=>{const dt=Math.min(.05,(time-last)/1000||.016);last=time;
+ if(!renderer.xr.isPresenting){camera.rotation.set(pitch,yaw,0)}
+ physics(dt);game(dt);
+ for(const p of players)if(!p.isMe){const g=p.group,moving=!p.freeze||p.freeze<=0;
+  g.position.set(p.pos.x,p.pos.y+(moving?Math.abs(Math.sin(time/130+p.skill*9))*.2:0),p.pos.z);g.rotation.y=p.face;
+  if(p.lava){const s=1+.1*Math.sin(time/100);g.userData.glow.scale.set(s,s,s)}}
+ acc+=dt;if(acc>.2){acc=0;draw(board);draw(wrist)}
+ renderer.render(scene,camera)});
+// UI
+const $=id=>document.getElementById(id),ov=$('ov'),vr=$('vr');
+if(navigator.xr)navigator.xr.isSessionSupported('immersive-vr').then(ok=>{vr.disabled=!ok;vr.textContent=ok?'ENTER VR':'VR not available here'}).catch(()=>vr.textContent='VR not available');
+else vr.textContent='VR not available';
+vr.onclick=async()=>{try{ac=ac||new AudioContext();const s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});
+ s.addEventListener('end',()=>ov.style.display='grid');await renderer.xr.setSession(s);ov.style.display='none'}catch(e){vr.textContent='VR failed: '+e.message}};
+$('desk').onclick=()=>{ov.style.display='none';try{ac=ac||new AudioContext()}catch(e){}};
+addEventListener('keydown',e=>keys[e.code]=1);addEventListener('keyup',e=>keys[e.code]=0);
+let drag=0;addEventListener('mousedown',()=>drag=1);addEventListener('mouseup',()=>drag=0);
+addEventListener('mousemove',e=>{if(drag){yaw-=e.movementX*.004;pitch=Math.max(-1.4,Math.min(1.4,pitch-e.movementY*.004))}});
+addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()});
+</script></body></html>
